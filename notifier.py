@@ -133,13 +133,33 @@ def send_applied_followup(job: dict):
     _post(header + letter_block + footer, reply_markup=keyboard)
 
 
+def send_auto_apply_result(job: dict, success: bool, reason: str, apply_to: str):
+    """Notifica el resultado de un auto-apply por email."""
+    if success:
+        _send(
+            f'✉️ <b>Email enviado automáticamente</b>\n\n'
+            f'<b>{_esc(job["title"])}</b>\n'
+            f'🏢 {_esc(job["company"])}  ·  {job["source"]}\n'
+            f'📨 Enviado a: <code>{_esc(apply_to)}</code>\n'
+            f'📎 CV adjunto: {"Sí" if __import__("os").path.exists(__import__("os").path.join(__import__("os").path.dirname(__file__), "cvs", "CV_Developer.pdf")) else "No (añade cvs/CV_Developer.pdf)"}\n\n'
+            f'🔗 <a href=\'{job["url"]}\'>Ver oferta</a>'
+        )
+    else:
+        _send(
+            f'⚠️ <b>Auto-apply fallido</b> — se enviará manualmente\n\n'
+            f'<b>{_esc(job["title"])}</b> — {_esc(job["company"])}\n'
+            f'Motivo: <code>{_esc(reason[:200])}</code>'
+        )
+
+
 def send_daily_digest(
+    applied_auto: list,
     applied: list,
     discarded: list,
     pending: list,
     db_stats: dict,
 ):
-    total = len(applied) + len(discarded) + len(pending)
+    total = len(applied_auto) + len(applied) + len(discarded) + len(pending)
 
     if total == 0:
         _send('📭 <b>Resumen diario</b>\n\nSin ofertas relevantes hoy. Seguiré buscando. 👀')
@@ -147,8 +167,13 @@ def send_daily_digest(
 
     lines = ['🌅 <b>Resumen diario — Dev Edition</b>\n']
 
+    if applied_auto:
+        lines.append(f'✉️ <b>Auto-aplicadas por email ({len(applied_auto)}):</b>')
+        for j in applied_auto:
+            lines.append(f'  • {j["puesto"]} — {j["empresa"]} ({j["portal"]})')
+
     if applied:
-        lines.append(f'✅ <b>Aplicadas ({len(applied)}):</b>')
+        lines.append(f'✅ <b>Aplicadas manualmente ({len(applied)}):</b>')
         for j in applied:
             lines.append(f'  • {j["puesto"]} — {j["empresa"]} ({j["portal"]})')
 

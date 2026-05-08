@@ -11,12 +11,13 @@ from database import init_db, is_seen, mark_seen, stats, save_pending, load_all_
 from scraper import run_all_searches
 from notifier import (
     send_startup, send_job_alert, send_applied_followup,
-    send_daily_digest, send_error, answer_callback,
+    send_auto_apply_result, send_daily_digest, send_error, answer_callback,
 )
 from ai_assistant import enrich_job
+from apply_email import extract_apply_email, send_application_email, smtp_ready
 from tracker import (
     init_tracker, track, update_status, today_jobs,
-    STATUS_PENDING, STATUS_APPLIED, STATUS_DISCARDED,
+    STATUS_PENDING, STATUS_APPLIED, STATUS_APPLIED_AUTO, STATUS_DISCARDED,
 )
 
 _pending_jobs: dict = {}
@@ -112,6 +113,21 @@ def check_jobs():
             if enriched is None:
                 continue
 
+            # AJ-3: intentar auto-apply por email si la oferta incluye contacto
+            apply_email_addr = extract_apply_email(enriched) if smtp_ready() else None
+            if apply_email_addr:
+                success, reason = send_application_email(enriched, apply_email_addr)
+                if success:
+                    track(enriched, status=STATUS_APPLIED_AUTO)
+                    send_auto_apply_result(enriched, True, '', apply_email_addr)
+                    new_jobs.append(enriched)
+                    time.sleep(1)
+                    continue   # resuelta — no entra en pending
+                else:
+                    print(f'[Email] Fallo ({reason}), pasa a flujo manual.')
+                    send_auto_apply_result(enriched, False, reason, apply_email_addr)
+
+            # Flujo manual: añadir a pending y notificar
             track(enriched, status=STATUS_PENDING)
             _pending_jobs[enriched['id']] = enriched
             save_pending(enriched['id'], enriched)
@@ -135,10 +151,11 @@ def daily_digest():
     try:
         jobs = today_jobs()
         send_daily_digest(
-            applied   =[j for j in jobs if j['status'] == STATUS_APPLIED],
-            discarded =[j for j in jobs if j['status'] == STATUS_DISCARDED],
-            pending   =[j for j in jobs if j['status'] == STATUS_PENDING],
-            db_stats  =stats(),
+            applied_auto =[j for j in jobs if j['status'] == STATUS_APPLIED_AUTO],
+            applied      =[j for j in jobs if j['status'] == STATUS_APPLIED],
+            discarded    =[j for j in jobs if j['status'] == STATUS_DISCARDED],
+            pending      =[j for j in jobs if j['status'] == STATUS_PENDING],
+            db_stats     =stats(),
         )
     except Exception as e:
         err = traceback.format_exc()

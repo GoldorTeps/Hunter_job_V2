@@ -8,6 +8,12 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
 DATABASE_URL     = os.getenv('DATABASE_URL', '')
 OPENAI_API_KEY   = os.getenv('OPENAI_API_KEY', '')
 
+# Datos del candidato — usados en emails de candidatura y firma
+CANDIDATE_NAME  = os.getenv('CANDIDATE_NAME',  'Adolfo David Janer Pérez')
+CANDIDATE_EMAIL = os.getenv('CANDIDATE_EMAIL', 'goldorteps@gmail.com')
+CANDIDATE_PHONE = os.getenv('CANDIDATE_PHONE', '')
+PORTFOLIO_URL   = os.getenv('PORTFOLIO_URL',   'https://new-cv-online.vercel.app/')
+
 CHECK_INTERVAL_MIN = int(os.getenv('CHECK_INTERVAL_MINUTES', '45'))
 ACTIVE_HOUR_START  = int(os.getenv('ACTIVE_HOUR_START', '9'))
 ACTIVE_HOUR_END    = int(os.getenv('ACTIVE_HOUR_END', '21'))
