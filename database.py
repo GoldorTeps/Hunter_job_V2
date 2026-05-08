@@ -39,7 +39,8 @@ def _ph():
 
 def init_db():
     with _connection() as conn:
-        conn.cursor().execute('''
+        cur = conn.cursor()
+        cur.execute('''
             CREATE TABLE IF NOT EXISTS seen_jobs (
                 job_id   TEXT PRIMARY KEY,
                 title    TEXT,
@@ -49,6 +50,13 @@ def init_db():
                 category TEXT,
                 source   TEXT,
                 found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS pending_context (
+                job_id     TEXT PRIMARY KEY,
+                job_json   TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
     print('[DB] Inicializada correctamente.')
@@ -71,6 +79,62 @@ def mark_seen(job: dict):
             (job['id'], job['title'], job['company'],
              job['location'], job['url'], job['category'], job['source'])
         )
+
+
+def save_pending(job_id: str, job: dict):
+    """Persiste un job enriquecido para que sobreviva reinicios del bot."""
+    import json as _json
+    payload = _json.dumps(job, ensure_ascii=False)
+    with _connection() as conn:
+        ph = _ph()
+        if _use_postgres():
+            conn.cursor().execute(
+                f'INSERT INTO pending_context (job_id, job_json) VALUES ({ph},{ph}) ON CONFLICT (job_id) DO NOTHING',
+                (job_id, payload),
+            )
+        else:
+            conn.cursor().execute(
+                f'INSERT OR IGNORE INTO pending_context (job_id, job_json) VALUES ({ph},{ph})',
+                (job_id, payload),
+            )
+
+
+def load_all_pending() -> dict:
+    """
+    Devuelve {job_id: job_dict} de todos los pending no expirados (< 7 días).
+    Llamar una vez en startup para repoblar _pending_jobs tras un reinicio.
+    """
+    import json as _json
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+    result: dict = {}
+    try:
+        with _connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                f'SELECT job_id, job_json FROM pending_context WHERE created_at > {_ph()}',
+                (cutoff,),
+            )
+            for job_id, job_json in cur.fetchall():
+                try:
+                    result[job_id] = _json.loads(job_json)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f'[DB] Error cargando pending_context: {e}')
+    return result
+
+
+def delete_pending(job_id: str):
+    """Elimina un job de pending_context al resolverlo (aplicado o descartado)."""
+    try:
+        with _connection() as conn:
+            conn.cursor().execute(
+                f'DELETE FROM pending_context WHERE job_id = {_ph()}',
+                (job_id,),
+            )
+    except Exception as e:
+        print(f'[DB] Error borrando pending {job_id}: {e}')
 
 
 def stats() -> dict:

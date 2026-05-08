@@ -1,6 +1,7 @@
 """
-Enriquecimiento con IA: puntúa cada oferta 1-10 según el perfil del candidato
-y extrae qué skills del JD tiene David vs cuáles podrían faltar.
+Enriquecimiento con IA:
+  - Puntúa cada oferta 1-10 según el perfil del candidato.
+  - Genera una carta de presentación personalizada para las ofertas que pasan el umbral.
 """
 import os
 import json
@@ -9,6 +10,7 @@ from openai import OpenAI
 from config import PROFILE_SUMMARY, MIN_AI_SCORE
 
 _client = None
+_cv_text_cache: str | None = None
 
 
 def _get_client() -> OpenAI:
@@ -18,10 +20,68 @@ def _get_client() -> OpenAI:
     return _client
 
 
+def _load_dev_cv() -> str:
+    """
+    Carga el texto del CV del desarrollador.
+    Prioridad: cvs/CV_Developer.pdf (si existe y pdfplumber está instalado)
+               → PROFILE_SUMMARY como fallback.
+    El resultado se cachea en memoria para el resto del proceso.
+    """
+    global _cv_text_cache
+    if _cv_text_cache is not None:
+        return _cv_text_cache
+
+    cv_path = os.path.join(os.path.dirname(__file__), 'cvs', 'CV_Developer.pdf')
+    if os.path.exists(cv_path):
+        try:
+            import pdfplumber
+            with pdfplumber.open(cv_path) as pdf:
+                _cv_text_cache = '\n'.join(p.extract_text() or '' for p in pdf.pages).strip()
+            print(f'[AI] CV cargado desde PDF ({len(_cv_text_cache)} chars).')
+            return _cv_text_cache
+        except ImportError:
+            print('[AI] pdfplumber no instalado — usando PROFILE_SUMMARY como CV.')
+        except Exception as e:
+            print(f'[AI] Error leyendo CV PDF: {e} — usando PROFILE_SUMMARY.')
+
+    _cv_text_cache = PROFILE_SUMMARY.strip()
+    return _cv_text_cache
+
+
+# ── Scoring ───────────────────────────────────────────────────────────────────
+
 _SYSTEM = (
     'Eres un asistente que analiza ofertas de trabajo para un desarrollador frontend/fullstack '
     'con foco en IA y automatización. Respondes ÚNICAMENTE con JSON válido, sin markdown.'
 )
+
+
+# ── Carta de presentación ─────────────────────────────────────────────────────
+
+_COVER_SYSTEM = (
+    'Eres un redactor especializado en cartas de presentación para desarrolladores. '
+    'Respondes ÚNICAMENTE con el cuerpo de la carta — sin saludo, sin despedida, sin firma.'
+)
+
+_COVER_PROMPT = """Escribe una carta de presentación breve (3-4 oraciones) para este puesto.
+
+REGLAS ESTRICTAS — incumplirlas invalida la respuesta:
+1. Usa SOLO información del perfil del candidato. No inventes experiencia ni habilidades.
+2. Menciona el stack técnico que el candidato tiene Y que la oferta pide (ver "Skills que encajan").
+3. Si la oferta menciona IA, LLM, automatización o producto: cita ZeroCog.org o el Job Hunter Bot como evidencia real.
+4. Sin "Estimado/a", sin "Un cordial saludo", sin fecha, sin nombre al final.
+5. Español. Tono directo, honesto, sin frases vacías.
+
+=== PERFIL DEL CANDIDATO ===
+{cv_text}
+
+=== OFERTA ===
+Puesto: {title}
+Empresa: {company}
+Descripción: {summary}
+Skills del candidato que encajan con esta oferta: {skills_match}
+
+Responde ÚNICAMENTE con las 3-4 oraciones de la carta."""
 
 _PROMPT = """Analiza esta oferta de trabajo para el candidato descrito y responde con JSON.
 
@@ -98,18 +158,58 @@ def score_job(job: dict) -> dict:
         return {'score': 0, 'reason': str(e), 'skills_match': [], 'skills_gap': [], 'remote': None, 'seniority': 'unknown'}
 
 
+def generate_cover_letter(job: dict) -> str:
+    """
+    Genera una carta de presentación personalizada para el job.
+    Usa skills_match del scoring para personalizar el stack mencionado.
+    Devuelve cadena vacía si no hay API key o falla la llamada.
+    """
+    if not os.getenv('OPENAI_API_KEY', ''):
+        return ''
+
+    cv_text      = _load_dev_cv()
+    skills_match = ', '.join(job.get('skills_match', [])) or 'ver perfil completo'
+    summary      = (job.get('summary') or 'No disponible')[:500]
+
+    prompt = _COVER_PROMPT.format(
+        cv_text      = cv_text[:2000],
+        title        = job.get('title', ''),
+        company      = job.get('company', ''),
+        summary      = summary,
+        skills_match = skills_match,
+    )
+
+    try:
+        response = _get_client().chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[
+                {'role': 'system', 'content': _COVER_SYSTEM},
+                {'role': 'user',   'content': prompt},
+            ],
+            max_tokens=250,
+            temperature=0.3,
+        )
+        letter = response.choices[0].message.content.strip()
+        print(f'[AI] Carta generada para "{job.get("title")}" ({len(letter)} chars).')
+        return letter
+    except Exception as e:
+        print(f'[AI] Error generando carta para "{job.get("title")}": {e}')
+        return ''
+
+
 def enrich_job(job: dict) -> dict | None:
     """
-    Enriquece el job con el análisis de IA.
+    Puntúa el job con IA y, si supera el umbral, genera la carta de presentación.
     Devuelve None si el score está por debajo de MIN_AI_SCORE.
     """
     analysis = score_job(job)
-    score = analysis['score']
+    score    = analysis['score']
 
     if score < MIN_AI_SCORE:
         print(f'[AI] Descartado (score {score}/10): {job["title"]} — {job["company"]}')
         return None
 
     job.update(analysis)
+    job['cover_letter'] = generate_cover_letter(job)
     print(f'[AI] ✅ Score {score}/10: {job["title"]} — {job["company"]}')
     return job

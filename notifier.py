@@ -101,19 +101,36 @@ def send_job_alert(job: dict) -> int | None:
     return resp.get('result', {}).get('message_id')
 
 
+def _esc(text: str) -> str:
+    """Escapa caracteres HTML para texto plano dentro de tags HTML."""
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
 def send_applied_followup(job: dict):
-    """Pregunta si ya envió la candidatura tras pulsar 'Voy a aplicar'."""
-    text = (
+    """
+    Envía URL de la oferta + carta de presentación sugerida (si existe) + botones de confirmación.
+    La carta aparece en bloque <pre> para que sea fácil copiarla con mantener pulsado en móvil.
+    """
+    cover = job.get('cover_letter', '').strip()
+
+    header = (
         f'🔗 <b>Abre la oferta y aplica</b>\n\n'
-        f'<b>{job["title"]}</b> — {job["company"]}\n'
-        f'<a href=\'{job["url"]}\'>Abrir oferta</a>\n\n'
-        f'Cuando lo hayas enviado, pulsa el botón:'
+        f'<b>{_esc(job["title"])}</b> — {_esc(job["company"])}\n'
+        f'<a href=\'{job["url"]}\'>Abrir oferta</a>'
     )
+
+    letter_block = (
+        f'\n\n💌 <b>Carta sugerida</b> <i>(mantén pulsado → copiar)</i>:\n'
+        f'<pre>{_esc(cover)}</pre>'
+    ) if cover else ''
+
+    footer = '\n\nCuando lo hayas enviado, pulsa el botón:'
+
     keyboard = {'inline_keyboard': [[
-        {'text': '✅ Enviado', 'callback_data': f'done_{job["id"]}'},
-        {'text': '❌ Al final no', 'callback_data': f'discard_{job["id"]}'},
+        {'text': '✅ Enviado',      'callback_data': f'done_{job["id"]}'},
+        {'text': '❌ Al final no',  'callback_data': f'discard_{job["id"]}'},
     ]]}
-    _post(text, reply_markup=keyboard)
+    _post(header + letter_block + footer, reply_markup=keyboard)
 
 
 def send_daily_digest(

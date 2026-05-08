@@ -7,7 +7,7 @@ import requests
 import schedule
 
 from config import CHECK_INTERVAL_MIN, DIGEST_HOUR, ACTIVE_HOUR_START, ACTIVE_HOUR_END, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
-from database import init_db, is_seen, mark_seen, stats
+from database import init_db, is_seen, mark_seen, stats, save_pending, load_all_pending, delete_pending
 from scraper import run_all_searches
 from notifier import (
     send_startup, send_job_alert, send_applied_followup,
@@ -55,12 +55,14 @@ def _handle_callback(cb: dict):
         answer_callback(cb_id, '✅ Registrada como aplicada.')
         update_status(job_id, STATUS_APPLIED)
         _pending_jobs.pop(job_id, None)
+        delete_pending(job_id)
 
     elif data.startswith('discard_'):
         job_id = data[len('discard_'):]
         answer_callback(cb_id, '❌ Descartada.')
         update_status(job_id, STATUS_DISCARDED)
         _pending_jobs.pop(job_id, None)
+        delete_pending(job_id)
 
 
 def _poll_callbacks():
@@ -112,6 +114,7 @@ def check_jobs():
 
             track(enriched, status=STATUS_PENDING)
             _pending_jobs[enriched['id']] = enriched
+            save_pending(enriched['id'], enriched)
 
             if _is_active_hour():
                 send_job_alert(enriched)
@@ -147,6 +150,13 @@ if __name__ == '__main__':
     print('🚀 Job Hunter v2 — Dev Edition arrancando...')
     init_db()
     init_tracker()
+
+    # AJ-2: repoblar _pending_jobs desde DB para sobrevivir reinicios
+    recovered = load_all_pending()
+    _pending_jobs.update(recovered)
+    if recovered:
+        print(f'[Pending] {len(recovered)} ofertas recuperadas de DB.')
+
     send_startup()
 
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
