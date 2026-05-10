@@ -11,6 +11,7 @@ Scrapers para portales de empleo tech:
   - Wellfound (HTML/SSR)      — Global, startups (best-effort)
 """
 import json
+import random
 import time
 import hashlib
 import unicodedata
@@ -21,15 +22,54 @@ from bs4 import BeautifulSoup
 
 from config import BLACKLIST, LOCATION_MALAGA, LOCATION_SPAIN, PROVINCE, SEARCHES, WWR_CATEGORIES
 
-HEADERS = {
-    'User-Agent': (
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-        'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/122.0.0.0 Safari/537.36'
-    ),
+_USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:123.0) Gecko/20100101 Firefox/123.0',
+    'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+]
+
+_BASE_ACCEPT_HEADERS = {
     'Accept-Language': 'es-ES,es;q=0.9',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 }
+
+
+def _get_headers(extra: dict | None = None) -> dict:
+    h = {**_BASE_ACCEPT_HEADERS, 'User-Agent': random.choice(_USER_AGENTS)}
+    if extra:
+        h.update(extra)
+    return h
+
+
+def _fetch_with_retry(url: str, method: str = 'get', max_retries: int = 2, **kwargs) -> requests.Response | None:
+    """GET/POST con reintentos en 429, respetando Retry-After (máx 120 s)."""
+    fn = getattr(requests, method)
+    for attempt in range(max_retries + 1):
+        try:
+            resp = fn(url, **kwargs)
+            if resp.status_code == 429:
+                wait = min(int(resp.headers.get('Retry-After', 30)), 120)
+                print(f'[Scraper] 429 en {url[:60]} — esperando {wait}s')
+                time.sleep(wait)
+                continue
+            return resp
+        except Exception as e:
+            if attempt == max_retries:
+                print(f'[Scraper] Error fetch {url[:60]}: {e}')
+            else:
+                time.sleep(3)
+    return None
+
+
+# Alias para compatibilidad interna; se prefiere _get_headers() para nuevas llamadas
+HEADERS = _get_headers()
 
 
 def _job_id(url: str) -> str:
@@ -115,7 +155,9 @@ def scrape_infojobs(keyword: str, category: str) -> list:
         f'&sortBy=PUBLICATION_DATE'
     )
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=12)
+        resp = _fetch_with_retry(url, headers=_get_headers(), timeout=12)
+        if not resp:
+            return jobs
         soup = BeautifulSoup(resp.text, 'html.parser')
 
         for item in soup.select('li[data-jobad-id], .ij-OfferList-item')[:12]:
@@ -165,6 +207,9 @@ _TECNOEMPLEO_FILTER = [
 ]
 
 _tecnoempleo_cache: list | None = None
+
+_wellfound_zero_streak: int = 0
+_WELLFOUND_DISABLE_AFTER: int = 3
 
 
 def _get_tecnoempleo_feed() -> list:
@@ -227,10 +272,6 @@ def reset_tecnoempleo_cache():
 # ── RemoteOK (JSON API) ───────────────────────────────────────────────────────
 
 _REMOTEOK_BASE = 'https://remoteok.io/api'
-_REMOTEOK_HEADERS = {
-    **HEADERS,
-    'Accept': 'application/json',
-}
 
 
 def scrape_remoteok(tag: str, category: str) -> list:
@@ -240,12 +281,14 @@ def scrape_remoteok(tag: str, category: str) -> list:
     """
     jobs = []
     try:
-        resp = requests.get(
+        resp = _fetch_with_retry(
             _REMOTEOK_BASE,
             params={'tag': tag},
-            headers=_REMOTEOK_HEADERS,
+            headers=_get_headers({'Accept': 'application/json'}),
             timeout=15,
         )
+        if not resp:
+            return jobs
         resp.raise_for_status()
         data = resp.json()
 
@@ -352,12 +395,14 @@ _GOB_BASE = 'https://www.getonbrd.com/api/v0/jobs'
 def scrape_getonboard(query: str, category: str) -> list:
     jobs = []
     try:
-        resp = requests.get(
+        resp = _fetch_with_retry(
             _GOB_BASE,
             params={'query': query, 'per_page': 20, 'published': 'true'},
-            headers={**HEADERS, 'Accept': 'application/json'},
+            headers=_get_headers({'Accept': 'application/json'}),
             timeout=15,
         )
+        if not resp:
+            return jobs
         resp.raise_for_status()
         data = resp.json().get('data', [])
 
@@ -412,12 +457,15 @@ _TORRE_SEARCH = 'https://torre.ai/api/opportunities/_search'
 def scrape_torre(query: str, category: str) -> list:
     jobs = []
     try:
-        resp = requests.post(
+        resp = _fetch_with_retry(
             _TORRE_SEARCH,
+            method='post',
             json={'q': query, 'size': 20, 'aggregate': False, 'remote': True},
-            headers={**HEADERS, 'Content-Type': 'application/json', 'Accept': 'application/json'},
+            headers=_get_headers({'Content-Type': 'application/json', 'Accept': 'application/json'}),
             timeout=15,
         )
+        if not resp:
+            return jobs
         resp.raise_for_status()
         results = resp.json().get('results', [])
 
@@ -471,7 +519,9 @@ def scrape_computrabajo(keyword: str, category: str) -> list:
     jobs = []
     url = f'{_COMPUTRABAJO_BASE}?q={keyword.replace(" ", "+")}'
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=12)
+        resp = _fetch_with_retry(url, headers=_get_headers(), timeout=12)
+        if not resp:
+            return jobs
         soup = BeautifulSoup(resp.text, 'html.parser')
 
         # Computrabajo cambia selectores con frecuencia — probamos en orden de prioridad
@@ -529,15 +579,13 @@ def scrape_wellfound(keyword: str, category: str) -> list:
     jobs = []
     url = f'{_WELLFOUND_BASE}?query={keyword.replace(" ", "+")}'
     try:
-        resp = requests.get(
+        resp = _fetch_with_retry(
             url,
-            headers={
-                **HEADERS,
-                'Accept': 'text/html,application/xhtml+xml',
-                'Cookie': '',   # sin sesión — acceso público
-            },
+            headers=_get_headers({'Accept': 'text/html,application/xhtml+xml', 'Cookie': ''}),
             timeout=15,
         )
+        if not resp:
+            return jobs
         soup = BeautifulSoup(resp.text, 'html.parser')
 
         # Intentar extraer datos SSR de Next.js
@@ -613,6 +661,14 @@ def scrape_wellfound(keyword: str, category: str) -> list:
 
 # ── Orquestador ───────────────────────────────────────────────────────────────
 
+def _update_wellfound_streak(n_found: int):
+    global _wellfound_zero_streak
+    if n_found == 0:
+        _wellfound_zero_streak += 1
+    else:
+        _wellfound_zero_streak = 0
+
+
 def run_all_searches() -> list:
     from scraper_linkedin import scrape_all_linkedin
 
@@ -651,7 +707,12 @@ def run_all_searches() -> list:
             time.sleep(1.5)
 
         for kw in search.get('wellfound', [])[:1]:
-            all_jobs += scrape_wellfound(kw, cat)
+            if _wellfound_zero_streak >= _WELLFOUND_DISABLE_AFTER:
+                print(f'[Wellfound] Desactivado tras {_wellfound_zero_streak} ciclos sin resultados.')
+                break
+            found = scrape_wellfound(kw, cat)
+            _update_wellfound_streak(len(found))
+            all_jobs += found
             time.sleep(2)
 
     # ── WeWorkRemotely: por categoría (RSS global, filtramos client-side) ──

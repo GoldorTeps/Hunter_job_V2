@@ -11,10 +11,11 @@ CSV_PATH = os.path.join(os.path.dirname(__file__), 'candidaturas.csv')
 
 COLUMNS = ['fecha', 'empresa', 'puesto', 'portal', 'categoria', 'score', 'estado', 'url', 'job_id']
 
-STATUS_PENDING         = 'pending'
-STATUS_APPLIED         = 'applied'          # aplicado manualmente por el usuario
-STATUS_APPLIED_AUTO    = 'applied_auto'     # enviado automáticamente por email
-STATUS_DISCARDED       = 'discarded'
+STATUS_PENDING          = 'pending'
+STATUS_APPLIED          = 'applied'           # aplicado manualmente por el usuario
+STATUS_APPLIED_AUTO     = 'applied_auto'      # enviado automáticamente por email
+STATUS_APPLIED_EXTERNAL = 'applied_external'  # aplicado en portal externo (LinkedIn, etc.)
+STATUS_DISCARDED        = 'discarded'
 
 
 def init_tracker():

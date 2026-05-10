@@ -24,10 +24,11 @@ RED   = '\033[31m'
 
 def _status_icon(status: str) -> str:
     return {
-        'pending':      '⏳',
-        'applied':      '✅',
-        'applied_auto': '✉️ ',
-        'discarded':    '❌',
+        'pending':          '⏳',
+        'applied':          '✅',
+        'applied_auto':     '✉️ ',
+        'applied_external': '🔗',
+        'discarded':        '❌',
     }.get(status, '❓')
 
 

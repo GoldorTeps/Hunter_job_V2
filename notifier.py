@@ -155,11 +155,12 @@ def send_auto_apply_result(job: dict, success: bool, reason: str, apply_to: str)
 def send_daily_digest(
     applied_auto: list,
     applied: list,
+    applied_external: list,
     discarded: list,
     pending: list,
     db_stats: dict,
 ):
-    total = len(applied_auto) + len(applied) + len(discarded) + len(pending)
+    total = len(applied_auto) + len(applied) + len(applied_external) + len(discarded) + len(pending)
 
     if total == 0:
         _send('📭 <b>Resumen diario</b>\n\nSin ofertas relevantes hoy. Seguiré buscando. 👀')
@@ -175,6 +176,11 @@ def send_daily_digest(
     if applied:
         lines.append(f'✅ <b>Aplicadas manualmente ({len(applied)}):</b>')
         for j in applied:
+            lines.append(f'  • {j["puesto"]} — {j["empresa"]} ({j["portal"]})')
+
+    if applied_external:
+        lines.append(f'🔗 <b>Aplicadas en portal externo ({len(applied_external)}):</b>')
+        for j in applied_external:
             lines.append(f'  • {j["puesto"]} — {j["empresa"]} ({j["portal"]})')
 
     if discarded:

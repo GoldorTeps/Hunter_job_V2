@@ -17,7 +17,7 @@ from ai_assistant import enrich_job
 from apply_email import extract_apply_email, send_application_email, smtp_ready
 from tracker import (
     init_tracker, track, update_status, today_jobs,
-    STATUS_PENDING, STATUS_APPLIED, STATUS_APPLIED_AUTO, STATUS_DISCARDED,
+    STATUS_PENDING, STATUS_APPLIED, STATUS_APPLIED_AUTO, STATUS_APPLIED_EXTERNAL, STATUS_DISCARDED,
 )
 
 _pending_jobs: dict = {}
@@ -151,11 +151,12 @@ def daily_digest():
     try:
         jobs = today_jobs()
         send_daily_digest(
-            applied_auto =[j for j in jobs if j['status'] == STATUS_APPLIED_AUTO],
-            applied      =[j for j in jobs if j['status'] == STATUS_APPLIED],
-            discarded    =[j for j in jobs if j['status'] == STATUS_DISCARDED],
-            pending      =[j for j in jobs if j['status'] == STATUS_PENDING],
-            db_stats     =stats(),
+            applied_auto     =[j for j in jobs if j['status'] == STATUS_APPLIED_AUTO],
+            applied          =[j for j in jobs if j['status'] == STATUS_APPLIED],
+            applied_external =[j for j in jobs if j['status'] == STATUS_APPLIED_EXTERNAL],
+            discarded        =[j for j in jobs if j['status'] == STATUS_DISCARDED],
+            pending          =[j for j in jobs if j['status'] == STATUS_PENDING],
+            db_stats         =stats(),
         )
     except Exception as e:
         err = traceback.format_exc()

@@ -111,6 +111,13 @@ Criterios de scoring:
 - 5-6:  Encaje parcial (skills relevantes pero stack diferente o condiciones inciertas)
 - 3-4:  Encaje débil (solo Python o JS genérico, sin IA/frontend)
 - 1-2:  No relevante para el perfil
+
+Bonus +1 punto (aplícalo antes de asignar el score final):
+Si la oferta menciona explícitamente LLM, OpenAI, automatización, agentes IA, o producto IA,
+el candidato tiene experiencia real y demostrable en producción con IA:
+  - ZeroCog.org: plataforma de coaching con IA que él diseñó y desplegó.
+  - Job Hunter Bot: bot de búsqueda de empleo autónomo con scraping + IA + Telegram (este mismo proyecto).
+Aplica el +1 si la oferta requiere o valora IA/LLM en producción y el score base sería ≥ 6.
 """
 
 
